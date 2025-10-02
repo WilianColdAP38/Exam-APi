@@ -17,7 +17,7 @@ Instala las librerías necesarias utilizando el archivo `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 
-as dependencias principales son: 
+##Las dependencias principales son: 
 
 fastapi, uvicorn, sqlmodel y requests.
 
